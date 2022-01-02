@@ -1,1 +1,2 @@
+pub const COULD_NOT_INITIALIZE: &str = "Crab could not leave his home...";
 pub const ANOTHER_WM_RUNNING: &str = "There's a chance that another window manager is already running! Let the Crab live by running it without another friends :D";
