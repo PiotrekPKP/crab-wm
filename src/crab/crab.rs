@@ -1,18 +1,18 @@
+use std::process::{Command, exit};
+
 use log::{info, LevelFilter};
-use std::process::exit;
 use x11rb::connection::Connection;
 use x11rb::errors::ReplyError;
+use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{ChangeWindowAttributesAux, ConnectionExt, EventMask};
-use crate::crab::crab_state::CrabState;
 
+use crate::crab::crab_state::CrabState;
 use crate::errors::ANOTHER_WM_RUNNING;
 use crate::layout::floating_layout::FloatingLayout;
-use crate::logger::log_to_file;
 
 pub struct Crab<'a, C: Connection> {
     connection: &'a C,
-    screen_num: usize,
-    state: CrabState<'a, C>
+    state: CrabState<'a, C>,
 }
 
 impl<'a, C: Connection> Crab<'a, C> {
@@ -36,8 +36,7 @@ impl<'a, C: Connection> Crab<'a, C> {
 
         Ok(Self {
             connection: &connection,
-            screen_num,
-            state
+            state,
         })
     }
 
@@ -46,10 +45,18 @@ impl<'a, C: Connection> Crab<'a, C> {
             self.state.flush();
             let _ = self.connection.flush();
 
-            if let Ok(event) = self.connection.wait_for_event() {
-                match event {
-                    _ => log_to_file(format!("Got event {:?}", event), LevelFilter::Debug)
+            let event = self.connection.wait_for_event().unwrap();
+            let mut event_opt = Some(event);
+
+            while let Some(event) = event_opt {
+                if let Event::ClientMessage(_) = event {
+                    return;
                 }
+                println!("{:?}", event);
+
+                self.state.handle_event(event);
+
+                event_opt = self.connection.poll_for_event().unwrap();
             }
         }
     }

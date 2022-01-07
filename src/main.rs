@@ -1,4 +1,4 @@
-use std::process::{Command, exit};
+use std::process::exit;
 
 use x11rb::connect;
 use crab_wm::crab::crab::Crab;
@@ -10,7 +10,6 @@ fn main() {
 
     if let Ok(crab) = &mut Crab::new(&connection, screen_num) {
         crab.event_loop();
-        Command::new("alacritty").spawn().unwrap();
     } else {
         eprintln!("{}", COULD_NOT_INITIALIZE);
         exit(1);

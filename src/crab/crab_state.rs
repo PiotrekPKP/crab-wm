@@ -3,10 +3,37 @@ use std::collections::BinaryHeap;
 use std::error::Error;
 
 use x11rb::connection::Connection;
+use x11rb::protocol::Event;
 use x11rb::protocol::xproto::{Atom, ConnectionExt, CreateGCAux, Gcontext, GetGeometryReply, MapState, Window};
 
 use crate::layout::crab_layout::CrabLayout;
 
+#[derive(Copy, Clone)]
+pub enum DragType {
+    Resize,
+    Move,
+}
+
+#[derive(Copy, Clone)]
+pub struct DragState {
+    pub window: WindowState,
+    pub drag_type: DragType,
+    pub x: i16,
+    pub y: i16,
+}
+
+impl DragState {
+    pub fn new(window: WindowState, drag_type: DragType, x: i16, y: i16) -> Self {
+        Self {
+            window,
+            drag_type,
+            x,
+            y,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct WindowState {
     pub window: Window,
     pub frame_window: Window,
@@ -36,7 +63,8 @@ pub struct CrabState<'a, C: Connection> {
     pub wm_delete_window: Atom,
     pub pending_exposes: Vec<Window>,
     pub window_states: Vec<WindowState>,
-    pub sources_to_ignore: BinaryHeap<Reverse<u64>>
+    pub sequences_to_ignore: BinaryHeap<Reverse<u64>>,
+    pub drag_window: Option<DragState>,
 }
 
 impl<'a, C: Connection> CrabState<'a, C> {
@@ -62,7 +90,8 @@ impl<'a, C: Connection> CrabState<'a, C> {
             wm_delete_window: wm_delete_window.reply()?.atom,
             pending_exposes: Vec::new(),
             window_states: Vec::new(),
-            sources_to_ignore: BinaryHeap::new()
+            sequences_to_ignore: BinaryHeap::new(),
+            drag_window: None
         })
     }
 
@@ -89,6 +118,39 @@ impl<'a, C: Connection> CrabState<'a, C> {
                     }
                 }
             })
+    }
+
+    pub fn handle_event(&mut self, event: Event) {
+        let mut should_ignore_event = false;
+
+        if let Some(sequence) = event.wire_sequence_number() {
+            while let Some(&Reverse(to_ignore)) = self.sequences_to_ignore.peek() {
+                if to_ignore.wrapping_sub(sequence as u64) <= u64::MAX / 2 {
+                    should_ignore_event = to_ignore == sequence as u64;
+                    break;
+                }
+            }
+        }
+
+        if should_ignore_event { return; }
+
+        match event {
+            Event::UnmapNotify(event) => self.layout.handle_unmap_notify_event(self, event),
+            Event::ConfigureRequest(event) => self.layout.handle_configure_request_event(self, event),
+            Event::MapRequest(event) => self.layout.handle_map_request_event(self, event),
+            Event::Expose(event) => self.layout.handle_expose_event(self, event),
+            Event::EnterNotify(event) => self.layout.handle_enter_notify_event(self, event),
+            Event::LeaveNotify(event) => self.layout.handle_leave_notify_event(self, event),
+            Event::MotionNotify(event) => self.layout.handle_motion_notify_event(self, event),
+            _ => {}
+        }
+    }
+
+    pub fn find_window_state(&self, window: Window) -> Option<&WindowState> {
+        self
+            .window_states
+            .iter()
+            .find(|window_state| window == window_state.window || window == window_state.frame_window)
     }
 
     pub fn flush(&mut self) {
